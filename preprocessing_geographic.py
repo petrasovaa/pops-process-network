@@ -87,6 +87,7 @@ def main(railroads, distance, out_nodes, out_segments):
     #   2     106743
     vertices = {}
     old = None
+    test_last = None
     for line in vertices_out.splitlines()[10:]:
         line = line.strip()
         if not (line.startswith("P") or line.startswith("1") or line.startswith("2")):
@@ -100,7 +101,12 @@ def main(railroads, distance, out_nodes, out_segments):
                 vertices[seg_cat] = []
             if old:
                 if dist(old, (x, y)) < distance / 2:
+                    test_last = (seg_cat, x, y)
                     continue
+            else:
+                if test_last:
+                    vertices[test_last[0]].append((test_last[1], test_last[2]))
+                    test_last = None
             vertices[seg_cat].append((x, y))
             old = (x, y)
 
@@ -167,10 +173,10 @@ def parse(nodes_file, seg_file):
 
 
 if __name__ == "__main__":
-    railroads = "railroads_USDOT_BTS_test"
-    out_nodes = "/tmp/nodes.csv"
-    out_segments = "/tmp/segments.csv"
-    distance = 0.001
+    railroads = "railroads_USDOT_BTS"
+    out_nodes = "/tmp/nodes2.csv"
+    out_segments = "/tmp/segments2.csv"
+    distance = 1000
     main(railroads, distance, out_nodes, out_segments)
 
     parse(out_nodes, out_segments)
