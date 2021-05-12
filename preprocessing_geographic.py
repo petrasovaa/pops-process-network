@@ -47,13 +47,13 @@ def main(railroads, distance, out_nodes, out_segments):
     segments = {}
     for line in nodes_out.splitlines()[10:]:
         line = line.strip()
-        if not (line.startswith("P") or line.startswith("1") or line.startswith("2")):
+        if not (line.startswith("P") or line.startswith("1 ") or line.startswith("2 ")):
             x, y = line.split()
             x = str(round(float(x), 8))
             y = str(round(float(y), 8))
-        elif line.startswith("1"):
+        elif line.startswith("1 "):
             seg_cat = int(line.split()[-1])
-        elif line.startswith("2"):
+        elif line.startswith("2 "):
             node_cat = int(line.split()[-1])
             if (x, y) in nodes_by_coor:
                 node_cat = nodes_by_coor[(x, y)]
@@ -90,11 +90,11 @@ def main(railroads, distance, out_nodes, out_segments):
     test_last = None
     for line in vertices_out.splitlines()[10:]:
         line = line.strip()
-        if not (line.startswith("P") or line.startswith("1") or line.startswith("2")):
+        if not (line.startswith("P") or line.startswith("1 ") or line.startswith("2 ")):
             x, y = line.split()
             x = str(round(float(x), 8))
             y = str(round(float(y), 8))
-        elif line.startswith("1"):
+        elif line.startswith("1 "):
             seg_cat = int(line.split()[-1])
             if seg_cat not in vertices.keys():
                 old = None
