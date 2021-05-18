@@ -20,9 +20,15 @@ def main(railroads, distance, out_nodes, out_segments):
     gs.run_command(
         "v.build.polylines",
         input=railroads,
-        output=railroads + "_simplified",
-        cats="first",
+        output=railroads + "_poly",
+        cats="no",
         type="line",
+    )
+    gs.run_command(
+        "v.category",
+        input=railroads + "_poly",
+        output=railroads + "_simplified",
+        option="add",
     )
     gs.run_command(
         "v.to.points",
