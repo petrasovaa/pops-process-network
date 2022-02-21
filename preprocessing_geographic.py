@@ -208,6 +208,7 @@ def main():
             old = (x, y)
 
     with open(out_segments, "w") as fout:
+        fout.write("node_1,node_2,cost,segment\n")
         for segment in segments:
             # filter segments of 0 length and same starting and ending node
             if (
