@@ -1,13 +1,75 @@
 #!/usr/bin/env python3
 
+############################################################################
+#
+# MODULE:       v.pops.network
+# AUTHOR(S):    Anna Petrasova, Vaclav Petras
+#
+# PURPOSE:      Create a network CSV file for PoPS modeling
+# COPYRIGHT:    (C) 2021-2022 by the GRASS Development Team
+#
+#               This program is free software under the GNU General
+#               Public License (>=v2). Read the file COPYING that
+#               comes with GRASS for details.
+#
+#############################################################################
+
+# %module
+# % description: Creates a network CSV file for PoPS modeling
+# % keyword: vector
+# % keyword: export
+# %end
+# %option G_OPT_V_INPUT
+# % description:
+# %end
+# %option G_OPT_F_OUTPUT
+# % key: segments
+# % description: Name for output file with network segments
+# % required : yes
+# %end
+# %option G_OPT_F_OUTPUT
+# % key: nodes
+# % description: Name for output file with network nodes
+# % required : no
+# %end
+# %option
+# % key: distance
+# % type: double
+# % required: yes
+# % multiple: no
+# % description: Distance for rasterization
+# %end
+# %option G_OPT_V_OUTPUT
+# % key: segments_check
+# % required: no
+# % description: Name of vector created by reading the resulting segment file
+# %end
+# %option G_OPT_V_OUTPUT
+# % key: nodes_check
+# % required: no
+# % description: Name of vector created by reading the resulting node file
+# %end
+
+
 import os
+import sys
+import atexit
 import tempfile
 from math import sqrt
 
 import grass.script as gs
 
+TMP_VECTOR = []
 
-os.environ["GRASS_OVERWRITE"] = "1"
+
+def cleanup():
+    gs.run_command("g.remove", type="vector", name=TMP_VECTOR, flags="f", quiet=True)
+
+
+def get_tmp_name(name):
+    tmp_name = gs.append_random(name, 8)
+    TMP_VECTOR.append(tmp_name)
+    return tmp_name
 
 
 def dist(p1, p2):
@@ -16,37 +78,63 @@ def dist(p1, p2):
     return sqrt((p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1]))
 
 
-def main(railroads, distance, out_nodes, out_segments):
+def main():
+    options, flags = gs.parser()
+    input_lines = options["input"]
+    out_nodes = options["nodes"]
+    out_segments = options["segments"]
+    nodes_check = options["nodes_check"]
+    segments_check = options["segments_check"]
+    distance = float(options["distance"])
+
+    clean_tmp = get_tmp_name("clean")
+    gs.run_command(
+        "v.clean",
+        input=input_lines,
+        output=clean_tmp,
+        tool="break,snap,rmdupl",
+        threshold=[0, 1, 0],
+    )
+    poly_tmp = get_tmp_name("poly")
     gs.run_command(
         "v.build.polylines",
-        input=railroads,
-        output=railroads + "_poly",
+        input=clean_tmp,
+        output=poly_tmp,
         cats="no",
         type="line",
     )
+    simplified_tmp = get_tmp_name("simplified")
     gs.run_command(
         "v.category",
-        input=railroads + "_poly",
-        output=railroads + "_simplified",
+        input=poly_tmp,
+        output=simplified_tmp,
         option="add",
     )
+    gs.run_command("v.db.addtable", map=simplified_tmp)
+    lengths = gs.read_command(
+        "v.to.db",
+        flags="p",
+        map=simplified_tmp,
+        type="line",
+        option="length",
+        columns="length",
+        separator="comma",
+        units="meters",
+    )
+    lengths = dict(
+        [[float(each) for each in line.split(",")] for line in lengths.splitlines()[1:]]
+    )
+    nodes_tmp = get_tmp_name("nodes")
     gs.run_command(
         "v.to.points",
         flags="t",
-        input=railroads + "_simplified",
+        input=simplified_tmp,
         type="line",
-        output=railroads + "_nodes",
+        output=nodes_tmp,
         use="node",
     )
-    gs.run_command(
-        "v.to.rast",
-        input=railroads + "_nodes",
-        type="point",
-        output=railroads + "_nodes",
-        use="val",
-    )
     nodes_out = gs.read_command(
-        "v.out.ascii", input=railroads + "_nodes", format="standard"
+        "v.out.ascii", input=nodes_tmp, format="standard"
     ).strip()
     nodes_by_coor = {}
     nodes_by_id = {}
@@ -66,26 +154,29 @@ def main(railroads, distance, out_nodes, out_segments):
             else:
                 nodes_by_coor[(x, y)] = node_cat
                 nodes_by_id[node_cat] = (x, y)
+            seg_length = lengths.get(seg_cat, 0)
             if seg_cat in segments:
-                segments[seg_cat] = (segments[seg_cat][0], node_cat)
+                segments[seg_cat] = (segments[seg_cat][0], node_cat, seg_length)
             else:
-                segments[seg_cat] = (node_cat, None)
+                segments[seg_cat] = (node_cat, None, None)
 
-    with open(out_nodes, "w") as fout:
-        for key in nodes_by_coor:
-            fout.write(f"{nodes_by_coor[key]},{key[0]},{key[1]}\n")
+    if out_nodes:
+        with open(out_nodes, "w") as fout:
+            for key in nodes_by_coor:
+                fout.write(f"{nodes_by_coor[key]},{key[0]},{key[1]}\n")
 
+    vertices_tmp = get_tmp_name("vertices")
     gs.run_command(
         "v.to.points",
         flags="it",
-        input=railroads + "_simplified",
+        input=simplified_tmp,
         type="line",
-        output=railroads + "_vertices",
+        output=vertices_tmp,
         use="vertex",
         dmax=distance,
     )
     vertices_out = gs.read_command(
-        "v.out.ascii", input=railroads + "_vertices", format="standard"
+        "v.out.ascii", input=vertices_tmp, format="standard"
     ).strip()
     #   P  1 2
     #   -81.96177273 37.54741428
@@ -118,8 +209,16 @@ def main(railroads, distance, out_nodes, out_segments):
 
     with open(out_segments, "w") as fout:
         for segment in segments:
+            # filter segments of 0 length and same starting and ending node
+            if (
+                segments[segment][0] == segments[segment][1]
+                and round(segments[segment][2]) == 0
+            ):
+                continue
             i = 0
-            fout.write(f"{segments[segment][0]},{segments[segment][1]},")
+            fout.write(
+                f"{segments[segment][0]},{segments[segment][1]},{segments[segment][2]},"
+            )
             for vertex in vertices[segment]:
                 if i != 0:
                     fout.write(f";{vertex[0]};{vertex[1]}")
@@ -128,8 +227,13 @@ def main(railroads, distance, out_nodes, out_segments):
                 i += 1
             fout.write("\n")
 
+    if out_nodes and nodes_check:
+        parse_nodes(out_nodes, nodes_check)
+    if segments_check:
+        parse_segments(out_segments, segments_check)
 
-def parse(nodes_file, seg_file):
+
+def parse_nodes(nodes_file, nodes_check):
     with open(nodes_file, "r") as fin, tempfile.NamedTemporaryFile(
         mode="w", delete=False
     ) as temp:
@@ -144,10 +248,13 @@ def parse(nodes_file, seg_file):
         x=2,
         y=3,
         cat=1,
-        output="nodes_reimport_test",
+        output=nodes_check,
         separator="comma",
     )
     os.remove(name)
+
+
+def parse_segments(seg_file, segments_check):
     with open(seg_file, "r") as fin, tempfile.NamedTemporaryFile(
         mode="w", delete=False
     ) as temp:
@@ -155,7 +262,7 @@ def parse(nodes_file, seg_file):
         name = temp.name
         for line in fin:
             try:
-                node1, node2, segment = line.split(",")
+                node1, node2, length, segment = line.split(",")
             except:
                 print(line)
             coords = segment.split(";")
@@ -171,7 +278,7 @@ def parse(nodes_file, seg_file):
         "v.in.ascii",
         flags="nt",
         input=name,
-        output="segments_reimport_test",
+        output=segments_check,
         format="standard",
         separator="comma",
     )
@@ -179,10 +286,5 @@ def parse(nodes_file, seg_file):
 
 
 if __name__ == "__main__":
-    railroads = "railroads_USDOT_BTS"
-    out_nodes = "/tmp/nodes2.csv"
-    out_segments = "/tmp/segments2.csv"
-    distance = 1000
-    main(railroads, distance, out_nodes, out_segments)
-
-    parse(out_nodes, out_segments)
+    atexit.register(cleanup)
+    sys.exit(main())
