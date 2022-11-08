@@ -200,6 +200,10 @@ def main():
                 if dist(old, (x, y)) < distance / 2:
                     test_last = (seg_cat, x, y)
                     continue
+                else:
+                    # test_last vertex must be invalidated for that segment
+                    # because another vertex is about to be added
+                    test_last = None
             else:
                 if test_last:
                     vertices[test_last[0]].append((test_last[1], test_last[2]))
@@ -259,9 +263,13 @@ def parse_segments(seg_file, segments_check):
     with open(seg_file, "r") as fin, tempfile.NamedTemporaryFile(
         mode="w", delete=False
     ) as temp:
-        cat = 1
+        cat = 0
         name = temp.name
         for line in fin:
+            cat += 1
+            # avoid header
+            if cat == 1:
+                continue
             try:
                 node1, node2, length, segment = line.split(",")
             except:
@@ -274,7 +282,7 @@ def parse_segments(seg_file, segments_check):
                 x = coord[0]
                 temp.write(f"{x} {y}\n")
             temp.write(f"1 {cat}\n")
-            cat += 1
+
     gs.run_command(
         "v.in.ascii",
         flags="nt",
