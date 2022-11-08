@@ -39,6 +39,15 @@
 # % multiple: no
 # % description: Distance for rasterization
 # %end
+# %option
+# % key: digits
+# % type: integer
+# % required: yes
+# % multiple: no
+# % options: 0-10
+# % answer: 2
+# % description: Number of digits after decimal point
+# %end
 # %option G_OPT_V_OUTPUT
 # % key: segments_check
 # % required: no
@@ -86,6 +95,7 @@ def main():
     nodes_check = options["nodes_check"]
     segments_check = options["segments_check"]
     distance = float(options["distance"])
+    digits = int(options["digits"])
 
     clean_tmp = get_tmp_name("clean")
     gs.run_command(
@@ -189,8 +199,8 @@ def main():
         line = line.strip()
         if not (line.startswith("P") or line.startswith("1 ") or line.startswith("2 ")):
             x, y = line.split()
-            x = str(round(float(x), 8))
-            y = str(round(float(y), 8))
+            x = str(round(float(x), digits))
+            y = str(round(float(y), digits))
         elif line.startswith("1 "):
             seg_cat = int(line.split()[-1])
             if seg_cat not in vertices.keys():
